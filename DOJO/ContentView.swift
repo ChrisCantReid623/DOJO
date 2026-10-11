@@ -2,13 +2,43 @@ import SwiftUI
 
 struct ContentView: View {
 
-    @StateObject private var healthKit = HealthKitManager()
+    // MARK: - Shared State
 
-    private let progression = ProgressionModel.preview
+    @StateObject private var healthKit = HealthKitManager()
 
     @State private var hasSynced = false
 
+    private let progression = ProgressionModel.preview
+
+    // MARK: - Navigation
+
     var body: some View {
+
+        TabView {
+
+            homePage
+                .tabItem {
+                    Label(
+                        "DOJO",
+                        systemImage: "house.fill"
+                    )
+                }
+
+            performancePage
+                .tabItem {
+                    Label(
+                        "Performance",
+                        systemImage: "chart.xyaxis.line"
+                    )
+                }
+        }
+        .tint(.orange)
+        .preferredColorScheme(.dark)
+    }
+
+    // MARK: - Page 1: DOJO Home
+
+    private var homePage: some View {
 
         NavigationStack {
 
@@ -16,91 +46,194 @@ struct ContentView: View {
 
                 VStack(spacing: 20) {
 
-                    // MARK: - DOJO Header
+                    // DOJO Branding
+
+                    dojoHeader
+
+                    // Belt Progression
+
+                    BeltRankView(
+                        progression: progression
+                    )
+
+                    // Daily Training Quest
+
+                    TrainingQuestView(
+                        quest: .preview
+                    )
+
+                    // Activity Overview
+
+                    HStack(
+                        alignment: .top,
+                        spacing: 12
+                    ) {
+
+                        TodaysActivityView(
+                            todaySteps: healthKit.todaySteps,
+                            recentWorkouts: healthKit.recentWorkouts,
+                            hasSynced: hasSynced
+                        )
+
+                        RecentTrainingDaysView(
+                            recentWorkouts: healthKit.recentWorkouts,
+                            hasSynced: hasSynced
+                        )
+                    }
+
+                    // Philosophy
+
+                    Text(
+                        "Train for today. Improve for tomorrow. Measure over a lifetime."
+                    )
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.vertical, 16)
+                }
+                .padding()
+            }
+            .background(
+                Color.black.ignoresSafeArea()
+            )
+            .navigationTitle("DOJO")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                syncToolbarButton
+            }
+        }
+    }
+
+    // MARK: - Page 2: Performance
+
+    private var performancePage: some View {
+
+        NavigationStack {
+
+            ScrollView {
+
+                VStack(spacing: 20) {
+
+                    // Page Header
 
                     VStack(spacing: 6) {
 
-                        Image(systemName: "figure.martial.arts")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.orange)
+                        Image(
+                            systemName: "chart.line.uptrend.xyaxis"
+                        )
+                        .font(.system(size: 32))
+                        .foregroundStyle(.orange)
 
-                        Text("DOJO")
-                            .font(.system(size: 32, weight: .bold))
-                            .tracking(4)
-
-                        Text("THE LONG GAME")
-                            .font(.caption)
+                        Text("PERFORMANCE")
+                            .font(
+                                .system(
+                                    size: 28,
+                                    weight: .bold
+                                )
+                            )
                             .tracking(3)
+
+                        Text("MEASURE THE LONG GAME")
+                            .font(.caption)
+                            .tracking(2)
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 12)
 
-                    // MARK: - Belt Rank
-
-                    BeltRankView(progression: progression)
-
-                    // MARK: - Lifetime Growth
-
-                    LifetimeGrowthView(growthPercentage: 27.4)
-
-                    // MARK: - Performance Chart
+                    // Performance Chart
 
                     PerformanceChartView()
 
-                    // MARK: - Training Quest
-
-                    TrainingQuestView(quest: .preview)
-
-                    // MARK: - Activity Dashboard
+                    // Apple Health Activity
 
                     activitySection
-
-                    // MARK: - Footer
-
-                    Text("Train for today. Improve for tomorrow. Measure over a lifetime.")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.vertical, 16)
                 }
                 .padding()
             }
-            .background(Color.black.ignoresSafeArea())
-            .navigationTitle("Dashboard")
+            .background(
+                Color.black.ignoresSafeArea()
+            )
+            .navigationTitle("Performance")
             .navigationBarTitleDisplayMode(.inline)
-
-            // MARK: - Apple Health Sync
-
             .toolbar {
-
-                ToolbarItem(placement: .topBarTrailing) {
-
-                    Button {
-                        hasSynced = true
-                        healthKit.requestAuthorization()
-                    } label: {
-
-                        Image(systemName: "arrow.clockwise")
-                            .foregroundStyle(.orange)
-                    }
-                    .accessibilityLabel("Sync Apple Health")
-                }
+                syncToolbarButton
             }
         }
-        .preferredColorScheme(.dark)
     }
 
-    // MARK: - Activity Section
+    // MARK: - DOJO Header
+
+    private var dojoHeader: some View {
+
+        VStack(spacing: 6) {
+
+            Image(
+                systemName: "figure.martial.arts"
+            )
+            .font(.system(size: 36))
+            .foregroundStyle(.orange)
+
+            Text("DOJO")
+                .font(
+                    .system(
+                        size: 32,
+                        weight: .bold
+                    )
+                )
+                .tracking(4)
+
+            Text("THE LONG GAME")
+                .font(.caption)
+                .tracking(3)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 12)
+    }
+
+    // MARK: - Shared Sync Button
+
+    private var syncToolbarButton: some ToolbarContent {
+
+        ToolbarItem(
+            placement: .topBarTrailing
+        ) {
+
+            Button {
+
+                hasSynced = true
+
+                healthKit.requestAuthorization()
+
+            } label: {
+
+                Image(
+                    systemName: "arrow.clockwise"
+                )
+                .foregroundStyle(.orange)
+            }
+            .accessibilityLabel(
+                "Sync Apple Health"
+            )
+        }
+    }
+
+    // MARK: - Apple Health Activity Section
 
     private var activitySection: some View {
 
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(
+            alignment: .leading,
+            spacing: 16
+        ) {
 
             HStack {
 
-                Image(systemName: "heart.text.square")
-                    .foregroundStyle(.orange)
+                Image(
+                    systemName: "heart.text.square"
+                )
+                .foregroundStyle(.orange)
 
                 Text("APPLE HEALTH ACTIVITY")
                     .font(.caption2)
@@ -154,17 +287,21 @@ struct ContentView: View {
 
                 VStack(spacing: 12) {
 
-                    Image(systemName: "heart.text.square")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.secondary)
+                    Image(
+                        systemName: "heart.text.square"
+                    )
+                    .font(.system(size: 28))
+                    .foregroundStyle(.secondary)
 
                     Text("Activity Not Synced")
                         .font(.headline)
 
-                    Text("Tap the sync icon above to load your Apple Health activity.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                    Text(
+                        "Tap the sync icon above to load your Apple Health activity."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
@@ -172,12 +309,21 @@ struct ContentView: View {
         }
         .padding(20)
         .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.05))
+            RoundedRectangle(
+                cornerRadius: 20
+            )
+            .fill(
+                Color.white.opacity(0.05)
+            )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(
+                cornerRadius: 20
+            )
+            .stroke(
+                Color.white.opacity(0.08),
+                lineWidth: 1
+            )
         )
     }
 
