@@ -6,8 +6,6 @@ struct ContentView: View {
 
     @StateObject private var healthKit = HealthKitManager()
 
-    @State private var hasSynced = false
-
     private let progression = ProgressionModel.preview
 
     // MARK: - Navigation
@@ -46,23 +44,15 @@ struct ContentView: View {
 
                 VStack(spacing: 20) {
 
-                    // DOJO Branding
-
                     dojoHeader
-
-                    // Belt Progression
 
                     BeltRankView(
                         progression: progression
                     )
 
-                    // Daily Training Quest
-
                     TrainingQuestView(
                         quest: .preview
                     )
-
-                    // Activity Overview
 
                     HStack(
                         alignment: .top,
@@ -72,16 +62,14 @@ struct ContentView: View {
                         TodaysActivityView(
                             todaySteps: healthKit.todaySteps,
                             recentWorkouts: healthKit.recentWorkouts,
-                            hasSynced: hasSynced
+                            hasSynced: healthKit.syncState.hasCompletedSync
                         )
 
                         RecentTrainingDaysView(
                             recentWorkouts: healthKit.recentWorkouts,
-                            hasSynced: hasSynced
+                            hasSynced: healthKit.syncState.hasCompletedSync
                         )
                     }
-
-                    // Philosophy
 
                     Text(
                         "Train for today. Improve for tomorrow. Measure over a lifetime."
@@ -114,8 +102,6 @@ struct ContentView: View {
 
                 VStack(spacing: 20) {
 
-                    // Page Header
-
                     VStack(spacing: 6) {
 
                         Image(
@@ -141,11 +127,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 12)
 
-                    // Performance Chart
-
                     PerformanceChartView()
-
-                    // Apple Health Activity
 
                     activitySection
                 }
@@ -202,17 +184,26 @@ struct ContentView: View {
 
             Button {
 
-                hasSynced = true
-
                 healthKit.requestAuthorization()
 
             } label: {
 
-                Image(
-                    systemName: "arrow.clockwise"
-                )
-                .foregroundStyle(.orange)
+                if healthKit.syncState.isSyncing {
+
+                    ProgressView()
+                        .tint(.orange)
+
+                } else {
+
+                    Image(
+                        systemName: "arrow.clockwise"
+                    )
+                    .foregroundStyle(.orange)
+                }
             }
+            .disabled(
+                healthKit.syncState.isSyncing
+            )
             .accessibilityLabel(
                 "Sync Apple Health"
             )
@@ -244,7 +235,21 @@ struct ContentView: View {
                 Spacer()
             }
 
-            if hasSynced {
+            if healthKit.syncState.isSyncing {
+
+                VStack(spacing: 12) {
+
+                    ProgressView()
+                        .tint(.orange)
+
+                    Text("Synchronizing Apple Health...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+
+            } else if healthKit.syncState.hasCompletedSync {
 
                 VStack(spacing: 14) {
 
@@ -269,19 +274,25 @@ struct ContentView: View {
                     )
 
                     activityRow(
-                        "Recent Workouts",
+                        "Recent Workouts (90 Days)",
                         "\(healthKit.totalRecordedWorkouts)"
                     )
 
                     activityRow(
-                        "Workout Minutes",
+                        "Workout Minutes (90 Days)",
                         "\(healthKit.totalWorkoutMinutes)"
                     )
                 }
 
-                Text(healthKit.statusMessage)
+                if let lastSync =
+                    healthKit.lastSuccessfulSync {
+
+                    Text(
+                        "Last updated: \(lastSync.formatted(date: .abbreviated, time: .shortened))"
+                    )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                }
 
             } else {
 
@@ -293,15 +304,13 @@ struct ContentView: View {
                     .font(.system(size: 28))
                     .foregroundStyle(.secondary)
 
-                    Text("Activity Not Synced")
+                    Text(healthKit.syncState.title)
                         .font(.headline)
 
-                    Text(
-                        "Tap the sync icon above to load your Apple Health activity."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                    Text(healthKit.statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
