@@ -4,21 +4,40 @@ struct ContentView: View {
 
     // MARK: - Shared State
 
-    @StateObject private var healthKit = HealthKitManager()
+    @StateObject private var healthKit =
+        HealthKitManager()
 
-    private let progression = ProgressionModel.preview
+    @StateObject private var progressionStore =
+        ProgressionStore()
 
-    // MARK: - Navigation
+    @State private var dailyQuest: TrainingQuest =
+        TrainingQuest(
+            title: "Establish Your Baseline",
+            description: "Sync Apple Health to unlock your adaptive training quest.",
+            durationMinutes: 0,
+            experiencePoints: 0,
+            icon: "heart.text.square"
+        )
+
+    // MARK: - Main Navigation
 
     var body: some View {
 
         TabView {
 
-            homePage
+            dojoPage
                 .tabItem {
                     Label(
                         "DOJO",
                         systemImage: "house.fill"
+                    )
+                }
+
+            trainingPage
+                .tabItem {
+                    Label(
+                        "Training",
+                        systemImage: "figure.strengthtraining.traditional"
                     )
                 }
 
@@ -32,44 +51,66 @@ struct ContentView: View {
         }
         .tint(.orange)
         .preferredColorScheme(.dark)
+        .onAppear {
+            refreshDailyQuest()
+        }
+        .onChange(
+            of: healthKit.lastSuccessfulSync
+        ) { _, newValue in
+
+            guard let synchronizedAt = newValue else {
+                return
+            }
+
+            progressionStore.processWorkouts(
+                healthKit.recentWorkouts,
+                synchronizedAt: synchronizedAt
+            )
+
+            refreshDailyQuest()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: UIApplication.significantTimeChangeNotification
+            )
+        ) { _ in
+            refreshDailyQuest()
+        }
     }
 
-    // MARK: - Page 1: DOJO Home
+    // MARK: - SNSY Quest Generation
 
-    private var homePage: some View {
+    private func refreshDailyQuest() {
+
+        let recommendation =
+            SNSYEngine.shared.dailyRecommendation(
+                from: healthKit.recentWorkouts,
+                hasSynced: healthKit.syncState.hasCompletedSync
+            )
+
+        dailyQuest = TrainingQuest(
+            recommendation: recommendation
+        )
+    }
+
+    // MARK: - PAGE 1 - DOJO
+
+    private var dojoPage: some View {
 
         NavigationStack {
 
             ScrollView {
 
-                VStack(spacing: 20) {
+                VStack(spacing: 14) {
 
                     dojoHeader
 
                     BeltRankView(
-                        progression: progression
+                        progression:
+                            progressionStore.progression
                     )
 
-                    TrainingQuestView(
-                        quest: .preview
-                    )
-
-                    HStack(
-                        alignment: .top,
-                        spacing: 12
-                    ) {
-
-                        TodaysActivityView(
-                            todaySteps: healthKit.todaySteps,
-                            recentWorkouts: healthKit.recentWorkouts,
-                            hasSynced: healthKit.syncState.hasCompletedSync
-                        )
-
-                        RecentTrainingDaysView(
-                            recentWorkouts: healthKit.recentWorkouts,
-                            hasSynced: healthKit.syncState.hasCompletedSync
-                        )
-                    }
+                    experienceSummary
 
                     Text(
                         "Train for today. Improve for tomorrow. Measure over a lifetime."
@@ -77,9 +118,12 @@ struct ContentView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
                 }
-                .padding()
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
             }
             .background(
                 Color.black.ignoresSafeArea()
@@ -92,7 +136,65 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Page 2: Performance
+    // MARK: - PAGE 2 - TRAINING
+
+    private var trainingPage: some View {
+
+        NavigationStack {
+
+            ScrollView {
+
+                VStack(spacing: 14) {
+
+                    trainingHeader
+
+                    TrainingQuestView(
+                        quest: dailyQuest
+                    )
+                    .frame(maxWidth: .infinity)
+
+                    TodaysActivityView(
+                        todaySteps: healthKit.todaySteps,
+                        recentWorkouts:
+                            healthKit.recentWorkouts,
+                        hasSynced:
+                            healthKit.syncState.hasCompletedSync
+                    )
+                    .frame(maxWidth: .infinity)
+
+                    RecentTrainingDaysView(
+                        recentWorkouts:
+                            healthKit.recentWorkouts,
+                        hasSynced:
+                            healthKit.syncState.hasCompletedSync
+                    )
+                    .frame(maxWidth: .infinity)
+
+                    Text(
+                        "Consistency builds discipline. Discipline builds mastery."
+                    )
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
+            }
+            .background(
+                Color.black.ignoresSafeArea()
+            )
+            .navigationTitle("Training")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                syncToolbarButton
+            }
+        }
+    }
+
+    // MARK: - PAGE 3 - PERFORMANCE
 
     private var performancePage: some View {
 
@@ -100,38 +202,17 @@ struct ContentView: View {
 
             ScrollView {
 
-                VStack(spacing: 20) {
+                VStack(spacing: 14) {
 
-                    VStack(spacing: 6) {
-
-                        Image(
-                            systemName: "chart.line.uptrend.xyaxis"
-                        )
-                        .font(.system(size: 32))
-                        .foregroundStyle(.orange)
-
-                        Text("PERFORMANCE")
-                            .font(
-                                .system(
-                                    size: 28,
-                                    weight: .bold
-                                )
-                            )
-                            .tracking(3)
-
-                        Text("MEASURE THE LONG GAME")
-                            .font(.caption)
-                            .tracking(2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 12)
+                    performanceHeader
 
                     PerformanceChartView()
 
                     activitySection
                 }
-                .padding()
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
             }
             .background(
                 Color.black.ignoresSafeArea()
@@ -144,37 +225,203 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - DOJO Header
+    // MARK: - Compact Headers
 
     private var dojoHeader: some View {
-
-        VStack(spacing: 6) {
-
-            Image(
-                systemName: "figure.martial.arts"
-            )
-            .font(.system(size: 36))
-            .foregroundStyle(.orange)
-
-            Text("DOJO")
-                .font(
-                    .system(
-                        size: 32,
-                        weight: .bold
-                    )
-                )
-                .tracking(4)
-
-            Text("THE LONG GAME")
-                .font(.caption)
-                .tracking(3)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 12)
+        compactHeader(
+            title: "DOJO",
+            subtitle: "THE LONG GAME"
+        )
     }
 
-    // MARK: - Shared Sync Button
+    private var trainingHeader: some View {
+        compactHeader(
+            title: "TRAINING",
+            subtitle: "THE DAILY DISCIPLINE"
+        )
+    }
+
+    private var performanceHeader: some View {
+        compactHeader(
+            title: "PERFORMANCE",
+            subtitle: "MEASURE THE LONG GAME"
+        )
+    }
+
+    private func compactHeader(
+        title: String,
+        subtitle: String
+    ) -> some View {
+
+        HStack {
+
+            VStack(
+                alignment: .leading,
+                spacing: 4
+            ) {
+
+                Text(title)
+                    .font(
+                        .system(
+                            size: 28,
+                            weight: .bold
+                        )
+                    )
+                    .tracking(2)
+
+                Text(subtitle)
+                    .font(.system(size: 10))
+                    .tracking(2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: - Experience Engine Card
+
+    private var experienceSummary: some View {
+
+        VStack(
+            alignment: .leading,
+            spacing: 14
+        ) {
+
+            HStack {
+
+                Image(systemName: "bolt.fill")
+                    .foregroundStyle(.yellow)
+
+                Text("EXPERIENCE ENGINE")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .tracking(1.5)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+            }
+
+            Divider()
+                .overlay(
+                    Color.white.opacity(0.08)
+                )
+
+            HStack {
+
+                VStack(
+                    alignment: .leading,
+                    spacing: 5
+                ) {
+
+                    Text("TOTAL XP")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Text(
+                        progressionStore.progression
+                            .totalXP.formatted()
+                    )
+                    .font(
+                        .system(
+                            size: 24,
+                            weight: .bold
+                        )
+                    )
+                }
+
+                Spacer()
+
+                VStack(
+                    alignment: .trailing,
+                    spacing: 5
+                ) {
+
+                    Text("WORKOUTS REWARDED")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Text(
+                        "\(progressionStore.awards.count)"
+                    )
+                    .font(
+                        .system(
+                            size: 24,
+                            weight: .bold
+                        )
+                    )
+                }
+            }
+
+            if let summary =
+                progressionStore.lastSyncSummary {
+
+                Divider()
+                    .overlay(
+                        Color.white.opacity(0.08)
+                    )
+
+                HStack {
+
+                    Text("Last Sync Rewards")
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Text(
+                        "+\(summary.earnedXP.formatted()) XP"
+                    )
+                    .foregroundStyle(.green)
+                    .fontWeight(.semibold)
+                }
+                .font(.subheadline)
+
+                if summary.levelsGained > 0 {
+
+                    Text(
+                        "LEVEL UP! +\(summary.levelsGained) levels"
+                    )
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundStyle(.yellow)
+                }
+            }
+
+            if progressionStore.enrollmentDate == nil {
+
+                Text(
+                    "Your first successful sync establishes your workout baseline."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            } else if let enrollmentDate =
+                progressionStore.enrollmentDate {
+
+                Text(
+                    "Enrolled: \(enrollmentDate.formatted(date: .abbreviated, time: .shortened))"
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(
+                    Color.white.opacity(0.08),
+                    lineWidth: 1
+                )
+        )
+    }
+
+    // MARK: - Shared HealthKit Sync Button
 
     private var syncToolbarButton: some ToolbarContent {
 
@@ -195,10 +442,8 @@ struct ContentView: View {
 
                 } else {
 
-                    Image(
-                        systemName: "arrow.clockwise"
-                    )
-                    .foregroundStyle(.orange)
+                    Image(systemName: "arrow.clockwise")
+                        .foregroundStyle(.orange)
                 }
             }
             .disabled(
@@ -210,7 +455,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Apple Health Activity Section
+    // MARK: - Apple Health Activity
 
     private var activitySection: some View {
 
@@ -221,10 +466,8 @@ struct ContentView: View {
 
             HStack {
 
-                Image(
-                    systemName: "heart.text.square"
-                )
-                .foregroundStyle(.orange)
+                Image(systemName: "heart.text.square")
+                    .foregroundStyle(.orange)
 
                 Text("APPLE HEALTH ACTIVITY")
                     .font(.caption2)
@@ -298,11 +541,9 @@ struct ContentView: View {
 
                 VStack(spacing: 12) {
 
-                    Image(
-                        systemName: "heart.text.square"
-                    )
-                    .font(.system(size: 28))
-                    .foregroundStyle(.secondary)
+                    Image(systemName: "heart.text.square")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.secondary)
 
                     Text(healthKit.syncState.title)
                         .font(.headline)
@@ -317,22 +558,17 @@ struct ContentView: View {
             }
         }
         .padding(20)
+        .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(
-                cornerRadius: 20
-            )
-            .fill(
-                Color.white.opacity(0.05)
-            )
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.05))
         )
         .overlay(
-            RoundedRectangle(
-                cornerRadius: 20
-            )
-            .stroke(
-                Color.white.opacity(0.08),
-                lineWidth: 1
-            )
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(
+                    Color.white.opacity(0.08),
+                    lineWidth: 1
+                )
         )
     }
 

@@ -3,18 +3,49 @@ import SwiftUI
 // MARK: - Training Quest Model
 
 struct TrainingQuest {
+
     let title: String
     let description: String
     let durationMinutes: Int
     let experiencePoints: Int
     let icon: String
+    let reason: String
+
+    init(
+        title: String,
+        description: String,
+        durationMinutes: Int,
+        experiencePoints: Int,
+        icon: String,
+        reason: String = ""
+    ) {
+        self.title = title
+        self.description = description
+        self.durationMinutes = durationMinutes
+        self.experiencePoints = experiencePoints
+        self.icon = icon
+        self.reason = reason
+    }
+
+    // MARK: - Recommendation Conversion
+
+    init(recommendation: TrainingRecommendation) {
+
+        self.title = recommendation.title
+        self.description = recommendation.description
+        self.durationMinutes = recommendation.durationMinutes
+        self.experiencePoints = recommendation.experiencePoints
+        self.icon = recommendation.icon
+        self.reason = recommendation.reason
+    }
 
     static let preview = TrainingQuest(
         title: "The Daily Discipline",
         description: "Complete a 20-minute bodyweight workout.",
         durationMinutes: 20,
         experiencePoints: 25,
-        icon: "figure.strengthtraining.functional"
+        icon: "figure.strengthtraining.functional",
+        reason: "Maintain your daily training consistency."
     )
 }
 
@@ -43,9 +74,9 @@ struct TrainingQuestView: View {
 
                 Spacer()
 
-                Text("DEMO")
+                Text("SNSY")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.orange)
             }
 
             // MARK: - Quest Details
@@ -72,18 +103,50 @@ struct TrainingQuestView: View {
 
                     HStack(spacing: 16) {
 
-                        Label(
-                            "\(quest.durationMinutes) min",
-                            systemImage: "clock"
-                        )
+                        if quest.durationMinutes > 0 {
 
-                        Label(
-                            "+\(quest.experiencePoints) XP",
-                            systemImage: "star.fill"
-                        )
+                            Label(
+                                "\(quest.durationMinutes) min",
+                                systemImage: "clock"
+                            )
+                        }
+
+                        if quest.experiencePoints > 0 {
+
+                            Label(
+                                "+\(quest.experiencePoints) XP",
+                                systemImage: "star.fill"
+                            )
+                        }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                }
+            }
+
+            // MARK: - SNSY Reasoning
+
+            if !quest.reason.isEmpty {
+
+                Divider()
+                    .overlay(Color.white.opacity(0.08))
+
+                HStack(alignment: .top, spacing: 10) {
+
+                    Image(systemName: "brain.head.profile")
+                        .foregroundStyle(.orange)
+
+                    VStack(alignment: .leading, spacing: 4) {
+
+                        Text("SNSY RECOMMENDATION")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .tracking(1)
+
+                        Text(quest.reason)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 

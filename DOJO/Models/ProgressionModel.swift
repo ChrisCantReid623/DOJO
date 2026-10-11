@@ -1,5 +1,5 @@
-import SwiftUI
 import Foundation
+import SwiftUI
 
 // MARK: - Belt Rank
 
@@ -14,7 +14,7 @@ enum BeltRank: Int, CaseIterable, Codable {
     case brown
     case black
 
-    // MARK: - Display Name
+    // MARK: - Title
 
     var title: String {
 
@@ -46,7 +46,7 @@ enum BeltRank: Int, CaseIterable, Codable {
         }
     }
 
-    // MARK: - Belt Color
+    // MARK: - Color
 
     var color: Color {
 
@@ -82,7 +82,7 @@ enum BeltRank: Int, CaseIterable, Codable {
         }
     }
 
-    // MARK: - Next Belt
+    // MARK: - Next Rank
 
     var nextRank: BeltRank? {
 
@@ -131,36 +131,25 @@ struct ProgressionModel {
     // MARK: - Experience
 
     var level: Int
-
-    // Total lifetime experience.
-    // This value never resets when leveling up.
-
     var totalXP: Int
 
     // MARK: - Mastery
 
     var currentBelt: BeltRank
-
-    // Belt promotions are earned through
-    // separate mastery milestones.
-
     var completedMilestones: Int
-
     var requiredMilestones: Int
 
     // MARK: - Consistency
 
     var streakDays: Int
-
     var completedQuests: Int
 
-    // MARK: - Experience Configuration
+    // MARK: - XP Configuration
 
     static let startingXPRequirement = 500
-
     static let levelGrowthRate = 1.15
 
-    // MARK: - XP Required for a Level
+    // MARK: - XP Requirement
 
     static func xpRequired(
         for level: Int
@@ -168,30 +157,26 @@ struct ProgressionModel {
 
         let safeLevel = max(1, level)
 
-        let exponent = Double(
-            safeLevel - 1
-        )
-
         let requirement =
             Double(startingXPRequirement)
-            * pow(levelGrowthRate, exponent)
+            * pow(
+                levelGrowthRate,
+                Double(safeLevel - 1)
+            )
 
-        // Avoid integer overflow at extremely
-        // high levels.
-
-        if !requirement.isFinite ||
-            requirement >= Double(Int.max) {
-
+        guard requirement.isFinite else {
             return Int.max
         }
 
-        return max(
-            1,
-            Int(requirement.rounded())
+        return Int(
+            min(
+                requirement.rounded(),
+                Double(Int.max - 1)
+            )
         )
     }
 
-    // MARK: - Total XP Needed to Reach a Level
+    // MARK: - Lifetime XP Threshold
 
     static func lifetimeXPRequired(
         toReach targetLevel: Int
@@ -203,13 +188,13 @@ struct ProgressionModel {
 
         var total = 0
 
-        for level in 1..<targetLevel {
+        for currentLevel in 1..<targetLevel {
 
             let requirement = xpRequired(
-                for: level
+                for: currentLevel
             )
 
-            let (newTotal, overflow) =
+            let (sum, overflow) =
                 total.addingReportingOverflow(
                     requirement
                 )
@@ -218,7 +203,7 @@ struct ProgressionModel {
                 return Int.max
             }
 
-            total = newTotal
+            total = sum
         }
 
         return total
@@ -228,18 +213,18 @@ struct ProgressionModel {
 
     var currentXP: Int {
 
-        let previousLevelsXP =
+        let previousXP =
             Self.lifetimeXPRequired(
                 toReach: level
             )
 
         return max(
             0,
-            totalXP - previousLevelsXP
+            totalXP - previousXP
         )
     }
 
-    // MARK: - Next Level Requirement
+    // MARK: - Required XP
 
     var requiredXP: Int {
 
@@ -248,7 +233,7 @@ struct ProgressionModel {
         )
     }
 
-    // MARK: - Level Progress
+    // MARK: - Progress
 
     var progress: Double {
 
@@ -256,12 +241,12 @@ struct ProgressionModel {
             return 0
         }
 
-        let percentage =
-            Double(currentXP)
-            / Double(requiredXP)
-
         return min(
-            max(percentage, 0),
+            max(
+                Double(currentXP)
+                / Double(requiredXP),
+                0
+            ),
             1
         )
     }
@@ -276,14 +261,14 @@ struct ProgressionModel {
         )
     }
 
-    // MARK: - Current XP Multiplier
+    // MARK: - Multiplier
 
     var xpMultiplier: Double {
 
         currentBelt.xpMultiplier
     }
 
-    // MARK: - Level Classification
+    // MARK: - Level Title
 
     var levelTitle: String {
 
@@ -333,32 +318,15 @@ struct ProgressionModel {
         )
     }
 
-    // MARK: - Award Experience
+    // MARK: - Award Exact XP
 
-    mutating func awardXP(
-        baseXP: Int
+    mutating func awardExactXP(
+        _ earnedXP: Int
     ) {
 
-        guard baseXP > 0 else {
+        guard earnedXP > 0 else {
             return
         }
-
-        // Universal belt multiplier.
-
-        let adjustedXP =
-            Double(baseXP)
-            * xpMultiplier
-
-        guard adjustedXP.isFinite else {
-            return
-        }
-
-        let earnedXP = Int(
-            min(
-                adjustedXP.rounded(),
-                Double(Int.max)
-            )
-        )
 
         let (newTotal, overflow) =
             totalXP.addingReportingOverflow(
@@ -369,13 +337,16 @@ struct ProgressionModel {
             ? Int.max
             : newTotal
 
-        // Level up as many times as necessary.
+        // XP advances levels, never belts.
 
         while level < Int.max {
 
-            let requirement = requiredXP
+            let threshold =
+                Self.lifetimeXPRequired(
+                    toReach: level + 1
+                )
 
-            if currentXP < requirement {
+            if totalXP < threshold {
                 break
             }
 
@@ -383,7 +354,35 @@ struct ProgressionModel {
         }
     }
 
-    // MARK: - Preview Data
+    // MARK: - Award Base XP
+
+    mutating func awardXP(
+        baseXP: Int
+    ) {
+
+        guard baseXP > 0 else {
+            return
+        }
+
+        let adjusted =
+            Double(baseXP)
+            * xpMultiplier
+
+        guard adjusted.isFinite else {
+            return
+        }
+
+        awardExactXP(
+            Int(
+                min(
+                    adjusted.rounded(),
+                    Double(Int.max - 1)
+                )
+            )
+        )
+    }
+
+    // MARK: - Preview
 
     static let preview = ProgressionModel(
 
