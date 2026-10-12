@@ -5,10 +5,53 @@ import Combine
 // MARK: - Workout Model
 
 struct DOJOWorkout: Identifiable {
+
     let id: UUID
     let activity: String
     let date: Date
     let durationMinutes: Int
+}
+
+// MARK: - Synchronization State
+
+enum HealthSyncState: Equatable {
+
+    case notSynced
+    case syncing
+    case updated(Date)
+    case failed(String)
+
+    var isSyncing: Bool {
+        if case .syncing = self {
+            return true
+        }
+        return false
+    }
+
+    var hasCompletedSync: Bool {
+        if case .updated = self {
+            return true
+        }
+        return false
+    }
+
+    var title: String {
+
+        switch self {
+
+        case .notSynced:
+            return "Not Synced"
+
+        case .syncing:
+            return "Syncing..."
+
+        case .updated:
+            return "Updated"
+
+        case .failed:
+            return "Sync Error"
+        }
+    }
 }
 
 // MARK: - HealthKit Manager
@@ -19,26 +62,49 @@ final class HealthKitManager: ObservableObject {
 
     private let healthStore = HKHealthStore()
 
-    // MARK: - Published Properties
+    private let workoutHistoryDays = 90
 
-    @Published var todaySteps: Int = 0
-    @Published var weeklySteps: [Date: Int] = [:]
-    @Published var recentWorkouts: [DOJOWorkout] = []
-    @Published var statusMessage = "HealthKit not connected"
+    // MARK: - Published Activity
 
-    // MARK: - Authorization
+    @Published private(set) var todaySteps: Int = 0
+
+    @Published private(set) var weeklySteps: [Date: Int] = [:]
+
+    @Published private(set) var recentWorkouts: [DOJOWorkout] = []
+
+    // MARK: - Published Sync State
+
+    @Published private(set) var syncState: HealthSyncState = .notSynced
+
+    @Published private(set) var lastSuccessfulSync: Date?
+
+    @Published private(set) var statusMessage = "HealthKit not connected"
+
+    // MARK: - Authorization and Synchronization
 
     func requestAuthorization() {
 
+        guard !syncState.isSyncing else {
+            return
+        }
+
         guard HKHealthStore.isHealthDataAvailable() else {
-            statusMessage = "HealthKit is unavailable"
+
+            finishWithError(
+                "HealthKit is unavailable on this device."
+            )
+
             return
         }
 
         guard let stepType = HKObjectType.quantityType(
             forIdentifier: .stepCount
         ) else {
-            statusMessage = "Step count unavailable"
+
+            finishWithError(
+                "Step count is unavailable."
+            )
+
             return
         }
 
@@ -49,6 +115,9 @@ final class HealthKitManager: ObservableObject {
             workoutType
         ]
 
+        syncState = .syncing
+        statusMessage = "Requesting Apple Health access..."
+
         healthStore.requestAuthorization(
             toShare: [],
             read: readTypes
@@ -56,37 +125,189 @@ final class HealthKitManager: ObservableObject {
 
             DispatchQueue.main.async {
 
-                if let error = error {
-                    self?.statusMessage = error.localizedDescription
+                guard let self = self else {
                     return
                 }
 
-                if success {
+                if let error = error {
 
-                    self?.statusMessage = "Authorization request completed"
+                    self.finishWithError(
+                        error.localizedDescription
+                    )
 
-                    self?.fetchTodaySteps()
-                    self?.fetchWeeklySteps()
-                    self?.fetchRecentWorkouts()
-
-                } else {
-                    self?.statusMessage = "Authorization request failed"
+                    return
                 }
+
+                guard success else {
+
+                    self.finishWithError(
+                        "HealthKit authorization request failed."
+                    )
+
+                    return
+                }
+
+                // Authorization request completion does not
+                // prove that every read permission was granted.
+                //
+                // Proceed with queries and handle their results.
+
+                self.performSync()
             }
         }
     }
 
-    // MARK: - Today's Step Count
+    // MARK: - Execute Synchronization
 
-    func fetchTodaySteps() {
+    private func performSync() {
+
+        statusMessage = "Loading Apple Health activity..."
+
+        let group = DispatchGroup()
+
+        let resultLock = NSLock()
+
+        var firstError: Error?
+
+        var fetchedTodaySteps: Int?
+        var fetchedWeeklySteps: [Date: Int]?
+        var fetchedWorkouts: [DOJOWorkout]?
+
+        // MARK: Today's Steps
+
+        group.enter()
+
+        queryTodaySteps { result in
+
+            resultLock.lock()
+
+            switch result {
+
+            case .success(let steps):
+                fetchedTodaySteps = steps
+
+            case .failure(let error):
+                if firstError == nil {
+                    firstError = error
+                }
+            }
+
+            resultLock.unlock()
+            group.leave()
+        }
+
+        // MARK: Weekly Steps
+
+        group.enter()
+
+        queryWeeklySteps { result in
+
+            resultLock.lock()
+
+            switch result {
+
+            case .success(let steps):
+                fetchedWeeklySteps = steps
+
+            case .failure(let error):
+                if firstError == nil {
+                    firstError = error
+                }
+            }
+
+            resultLock.unlock()
+            group.leave()
+        }
+
+        // MARK: Workout History
+
+        group.enter()
+
+        queryRecentWorkouts { result in
+
+            resultLock.lock()
+
+            switch result {
+
+            case .success(let workouts):
+                fetchedWorkouts = workouts
+
+            case .failure(let error):
+                if firstError == nil {
+                    firstError = error
+                }
+            }
+
+            resultLock.unlock()
+            group.leave()
+        }
+
+        // MARK: Finalize
+
+        group.notify(queue: .main) {
+
+            resultLock.lock()
+
+            let error = firstError
+            let today = fetchedTodaySteps
+            let weekly = fetchedWeeklySteps
+            let workouts = fetchedWorkouts
+
+            resultLock.unlock()
+
+            if let today = today {
+                self.todaySteps = today
+            }
+
+            if let weekly = weekly {
+                self.weeklySteps = weekly
+            }
+
+            if let workouts = workouts {
+                self.recentWorkouts = workouts
+            }
+
+            if let error = error {
+
+                self.finishWithError(
+                    error.localizedDescription
+                )
+
+                return
+            }
+
+            let completedAt = Date()
+
+            self.lastSuccessfulSync = completedAt
+
+            self.syncState = .updated(completedAt)
+
+            self.statusMessage = "Activity data updated"
+        }
+    }
+
+    // MARK: - Today's Step Query
+
+    private func queryTodaySteps(
+        completion: @escaping (Result<Int, Error>) -> Void
+    ) {
 
         guard let stepType = HKObjectType.quantityType(
             forIdentifier: .stepCount
         ) else {
+
+            completion(
+                .failure(
+                    HealthSyncError.stepTypeUnavailable
+                )
+            )
+
             return
         }
 
-        let startOfDay = Calendar.current.startOfDay(for: Date())
+        let startOfDay = Calendar.current.startOfDay(
+            for: Date()
+        )
 
         let predicate = HKQuery.predicateForSamples(
             withStart: startOfDay,
@@ -98,53 +319,70 @@ final class HealthKitManager: ObservableObject {
             quantityType: stepType,
             quantitySamplePredicate: predicate,
             options: .cumulativeSum
-        ) { [weak self] _, result, error in
+        ) { _, result, error in
 
-            DispatchQueue.main.async {
+            if let error = error {
 
-                if let error = error {
-                    self?.statusMessage = error.localizedDescription
-                    return
-                }
-
-                let steps = result?
-                    .sumQuantity()?
-                    .doubleValue(for: .count()) ?? 0
-
-                self?.todaySteps = Int(steps)
-                self?.statusMessage = "Activity data updated"
+                completion(.failure(error))
+                return
             }
+
+            let steps = result?
+                .sumQuantity()?
+                .doubleValue(for: .count()) ?? 0
+
+            completion(
+                .success(Int(steps))
+            )
         }
 
         healthStore.execute(query)
     }
 
-    // MARK: - Seven-Day Step History
+    // MARK: - Seven-Day Step Query
 
-    func fetchWeeklySteps() {
+    private func queryWeeklySteps(
+        completion: @escaping (
+            Result<[Date: Int], Error>
+        ) -> Void
+    ) {
 
         guard let stepType = HKObjectType.quantityType(
             forIdentifier: .stepCount
         ) else {
+
+            completion(
+                .failure(
+                    HealthSyncError.stepTypeUnavailable
+                )
+            )
+
             return
         }
 
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
+
+        let today = calendar.startOfDay(
+            for: Date()
+        )
 
         guard let startDate = calendar.date(
             byAdding: .day,
             value: -6,
             to: today
-        ) else {
-            return
-        }
-
-        guard let endDate = calendar.date(
+        ),
+        let endDate = calendar.date(
             byAdding: .day,
             value: 1,
             to: today
         ) else {
+
+            completion(
+                .failure(
+                    HealthSyncError.invalidDateRange
+                )
+            )
+
             return
         }
 
@@ -161,16 +399,22 @@ final class HealthKitManager: ObservableObject {
             intervalComponents: DateComponents(day: 1)
         )
 
-        query.initialResultsHandler = { [weak self] _, results, error in
+        query.initialResultsHandler = { _, results, error in
 
             if let error = error {
-                DispatchQueue.main.async {
-                    self?.statusMessage = error.localizedDescription
-                }
+
+                completion(.failure(error))
                 return
             }
 
             guard let results = results else {
+
+                completion(
+                    .failure(
+                        HealthSyncError.missingQueryResults
+                    )
+                )
+
                 return
             }
 
@@ -185,22 +429,51 @@ final class HealthKitManager: ObservableObject {
                     .sumQuantity()?
                     .doubleValue(for: .count()) ?? 0
 
-                history[statistics.startDate] = Int(steps)
+                let day = calendar.startOfDay(
+                    for: statistics.startDate
+                )
+
+                history[day] = Int(steps)
             }
 
-            DispatchQueue.main.async {
-                self?.weeklySteps = history
-            }
+            completion(.success(history))
         }
 
         healthStore.execute(query)
     }
 
-    // MARK: - Recent Workouts
+    // MARK: - Workout History Query
 
-    func fetchRecentWorkouts() {
+    private func queryRecentWorkouts(
+        completion: @escaping (
+            Result<[DOJOWorkout], Error>
+        ) -> Void
+    ) {
 
         let workoutType = HKObjectType.workoutType()
+
+        let calendar = Calendar.current
+
+        guard let startDate = calendar.date(
+            byAdding: .day,
+            value: -workoutHistoryDays,
+            to: Date()
+        ) else {
+
+            completion(
+                .failure(
+                    HealthSyncError.invalidDateRange
+                )
+            )
+
+            return
+        }
+
+        let predicate = HKQuery.predicateForSamples(
+            withStart: startDate,
+            end: Date(),
+            options: []
+        )
 
         let sortDescriptor = NSSortDescriptor(
             key: HKSampleSortIdentifierEndDate,
@@ -209,25 +482,26 @@ final class HealthKitManager: ObservableObject {
 
         let query = HKSampleQuery(
             sampleType: workoutType,
-            predicate: nil,
-            limit: 20,
+            predicate: predicate,
+            limit: HKObjectQueryNoLimit,
             sortDescriptors: [sortDescriptor]
         ) { [weak self] _, samples, error in
 
             if let error = error {
-                DispatchQueue.main.async {
-                    self?.statusMessage = error.localizedDescription
-                }
+
+                completion(.failure(error))
                 return
             }
 
-            let workouts = (samples as? [HKWorkout] ?? []).map { workout in
+            let workouts = (
+                samples as? [HKWorkout] ?? []
+            ).map { workout in
 
                 DOJOWorkout(
                     id: workout.uuid,
                     activity: self?.activityName(
                         for: workout.workoutActivityType
-                    ) ?? "Other",
+                    ) ?? "Other Workout",
                     date: workout.startDate,
                     durationMinutes: Int(
                         workout.duration / 60
@@ -235,12 +509,21 @@ final class HealthKitManager: ObservableObject {
                 )
             }
 
-            DispatchQueue.main.async {
-                self?.recentWorkouts = workouts
-            }
+            completion(.success(workouts))
         }
 
         healthStore.execute(query)
+    }
+
+    // MARK: - Error Handling
+
+    private func finishWithError(
+        _ message: String
+    ) {
+
+        syncState = .failed(message)
+
+        statusMessage = message
     }
 
     // MARK: - Workout Classification
@@ -316,6 +599,7 @@ final class HealthKitManager: ObservableObject {
     // MARK: - Weekly Activity Statistics
 
     var weeklyTotalSteps: Int {
+
         weeklySteps.values.reduce(0, +)
     }
 
@@ -329,16 +613,21 @@ final class HealthKitManager: ObservableObject {
     }
 
     var activeDays: Int {
-        weeklySteps.values.filter { $0 >= 7000 }.count
+
+        weeklySteps.values.filter {
+            $0 >= 7000
+        }.count
     }
 
     // MARK: - Workout Statistics
 
     var totalRecordedWorkouts: Int {
+
         recentWorkouts.count
     }
 
     var totalWorkoutMinutes: Int {
+
         recentWorkouts.reduce(0) {
             $0 + $1.durationMinutes
         }
@@ -351,5 +640,29 @@ final class HealthKitManager: ObservableObject {
         }
 
         return totalWorkoutMinutes / recentWorkouts.count
+    }
+}
+
+// MARK: - Synchronization Errors
+
+private enum HealthSyncError: LocalizedError {
+
+    case stepTypeUnavailable
+    case invalidDateRange
+    case missingQueryResults
+
+    var errorDescription: String? {
+
+        switch self {
+
+        case .stepTypeUnavailable:
+            return "Step count is unavailable."
+
+        case .invalidDateRange:
+            return "Unable to calculate the activity date range."
+
+        case .missingQueryResults:
+            return "Apple Health returned no query results."
+        }
     }
 }

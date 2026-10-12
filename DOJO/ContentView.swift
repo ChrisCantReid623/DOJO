@@ -2,239 +2,579 @@ import SwiftUI
 
 struct ContentView: View {
 
-    // MARK: - HealthKit Manager
+    // MARK: - Shared State
 
-    @StateObject private var healthKit = HealthKitManager()
+    @StateObject private var healthKit =
+        HealthKitManager()
 
-    // MARK: - Sorted Activity History
+    @StateObject private var progressionStore =
+        ProgressionStore()
 
-    private var sortedDays: [Date] {
-        healthKit.weeklySteps.keys.sorted()
-    }
+    @State private var dailyQuest: TrainingQuest =
+        TrainingQuest(
+            title: "Establish Your Baseline",
+            description: "Sync Apple Health to unlock your adaptive training quest.",
+            durationMinutes: 0,
+            experiencePoints: 0,
+            icon: "heart.text.square"
+        )
 
-    // MARK: - Main View
+    // MARK: - Main Navigation
 
     var body: some View {
+
+        TabView {
+
+            dojoPage
+                .tabItem {
+                    Label(
+                        "DOJO",
+                        systemImage: "house.fill"
+                    )
+                }
+
+            trainingPage
+                .tabItem {
+                    Label(
+                        "Training",
+                        systemImage: "figure.strengthtraining.traditional"
+                    )
+                }
+
+            performancePage
+                .tabItem {
+                    Label(
+                        "Performance",
+                        systemImage: "chart.xyaxis.line"
+                    )
+                }
+        }
+        .tint(.orange)
+        .preferredColorScheme(.dark)
+        .onAppear {
+            refreshDailyQuest()
+        }
+        .onChange(
+            of: healthKit.lastSuccessfulSync
+        ) { _, newValue in
+
+            guard let synchronizedAt = newValue else {
+                return
+            }
+
+            progressionStore.processWorkouts(
+                healthKit.recentWorkouts,
+                synchronizedAt: synchronizedAt
+            )
+
+            refreshDailyQuest()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: UIApplication.significantTimeChangeNotification
+            )
+        ) { _ in
+            refreshDailyQuest()
+        }
+    }
+
+    // MARK: - SNSY Quest Generation
+
+    private func refreshDailyQuest() {
+
+        let recommendation =
+            SNSYEngine.shared.dailyRecommendation(
+                from: healthKit.recentWorkouts,
+                hasSynced: healthKit.syncState.hasCompletedSync
+            )
+
+        dailyQuest = TrainingQuest(
+            recommendation: recommendation
+        )
+    }
+
+    // MARK: - PAGE 1 - DOJO
+
+    private var dojoPage: some View {
 
         NavigationStack {
 
             ScrollView {
 
-                VStack(spacing: 24) {
+                VStack(spacing: 14) {
 
-                    // MARK: - Header
+                    dojoHeader
 
-                    VStack(spacing: 8) {
+                    BeltRankView(
+                        progression:
+                            progressionStore.progression
+                    )
 
-                        Image(systemName: "figure.martial.arts")
-                            .font(.system(size: 60))
-                            .foregroundStyle(.orange)
+                    experienceSummary
 
-                        Text("DOJO")
-                            .font(.largeTitle)
-                            .bold()
+                    Text(
+                        "Train for today. Improve for tomorrow. Measure over a lifetime."
+                    )
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
+            }
+            .background(
+                Color.black.ignoresSafeArea()
+            )
+            .navigationTitle("DOJO")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                syncToolbarButton
+            }
+        }
+    }
 
-                        Text("Your Personal Training Agent")
-                            .foregroundStyle(.secondary)
-                    }
+    // MARK: - PAGE 2 - TRAINING
 
-                    // MARK: - Today's Activity
+    private var trainingPage: some View {
 
-                    GroupBox("Today's Activity") {
+        NavigationStack {
 
-                        VStack(spacing: 12) {
+            ScrollView {
 
-                            Text(healthKit.todaySteps.formatted())
-                                .font(
-                                    .system(
-                                        size: 48,
-                                        weight: .bold
-                                    )
-                                )
+                VStack(spacing: 14) {
 
-                            Text("Steps Today")
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                    }
+                    trainingHeader
 
-                    // MARK: - Weekly Summary
+                    TrainingQuestView(
+                        quest: dailyQuest
+                    )
+                    .frame(maxWidth: .infinity)
 
-                    GroupBox("Weekly Summary") {
+                    TodaysActivityView(
+                        todaySteps: healthKit.todaySteps,
+                        recentWorkouts:
+                            healthKit.recentWorkouts,
+                        hasSynced:
+                            healthKit.syncState.hasCompletedSync
+                    )
+                    .frame(maxWidth: .infinity)
 
-                        VStack(spacing: 16) {
+                    RecentTrainingDaysView(
+                        recentWorkouts:
+                            healthKit.recentWorkouts,
+                        hasSynced:
+                            healthKit.syncState.hasCompletedSync
+                    )
+                    .frame(maxWidth: .infinity)
 
-                            metricRow(
-                                "Total Steps",
-                                healthKit.weeklyTotalSteps.formatted()
-                            )
+                    Text(
+                        "Consistency builds discipline. Discipline builds mastery."
+                    )
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
+            }
+            .background(
+                Color.black.ignoresSafeArea()
+            )
+            .navigationTitle("Training")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                syncToolbarButton
+            }
+        }
+    }
 
-                            metricRow(
-                                "Daily Average",
-                                healthKit.weeklyAverageSteps.formatted()
-                            )
+    // MARK: - PAGE 3 - PERFORMANCE
 
-                            metricRow(
-                                "Active Days (7,000+)",
-                                "\(healthKit.activeDays) / 7"
-                            )
-                        }
-                        .padding()
-                    }
+    private var performancePage: some View {
 
-                    // MARK: - Seven-Day History
+        NavigationStack {
 
-                    GroupBox("Seven-Day History") {
+            ScrollView {
 
-                        VStack(spacing: 12) {
+                VStack(spacing: 14) {
 
-                            if sortedDays.isEmpty {
+                    performanceHeader
 
-                                Text("No activity history available")
-                                    .foregroundStyle(.secondary)
+                    PerformanceChartView()
 
-                            } else {
+                    activitySection
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
+            }
+            .background(
+                Color.black.ignoresSafeArea()
+            )
+            .navigationTitle("Performance")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                syncToolbarButton
+            }
+        }
+    }
 
-                                ForEach(sortedDays, id: \.self) { date in
+    // MARK: - Compact Headers
 
-                                    HStack {
+    private var dojoHeader: some View {
+        compactHeader(
+            title: "DOJO",
+            subtitle: "THE LONG GAME"
+        )
+    }
 
-                                        Text(
-                                            date.formatted(
-                                                .dateTime.weekday(.wide)
-                                            )
-                                        )
+    private var trainingHeader: some View {
+        compactHeader(
+            title: "TRAINING",
+            subtitle: "THE DAILY DISCIPLINE"
+        )
+    }
 
-                                        Spacer()
+    private var performanceHeader: some View {
+        compactHeader(
+            title: "PERFORMANCE",
+            subtitle: "MEASURE THE LONG GAME"
+        )
+    }
 
-                                        Text(
-                                            (healthKit.weeklySteps[date] ?? 0)
-                                                .formatted()
-                                        )
-                                        .bold()
-                                    }
+    private func compactHeader(
+        title: String,
+        subtitle: String
+    ) -> some View {
 
-                                    Divider()
-                                }
-                            }
-                        }
-                        .padding()
-                    }
+        HStack {
 
-                    // MARK: - Workout Summary
+            VStack(
+                alignment: .leading,
+                spacing: 4
+            ) {
 
-                    GroupBox("Workout Summary") {
+                Text(title)
+                    .font(
+                        .system(
+                            size: 28,
+                            weight: .bold
+                        )
+                    )
+                    .tracking(2)
 
-                        VStack(spacing: 16) {
+                Text(subtitle)
+                    .font(.system(size: 10))
+                    .tracking(2)
+                    .foregroundStyle(.secondary)
+            }
 
-                            metricRow(
-                                "Recorded Workouts",
-                                "\(healthKit.totalRecordedWorkouts)"
-                            )
+            Spacer()
+        }
+        .padding(.vertical, 4)
+    }
 
-                            metricRow(
-                                "Total Workout Minutes",
-                                "\(healthKit.totalWorkoutMinutes)"
-                            )
+    // MARK: - Experience Engine Card
 
-                            metricRow(
-                                "Average Duration",
-                                "\(healthKit.averageWorkoutMinutes) min"
-                            )
-                        }
-                        .padding()
-                    }
+    private var experienceSummary: some View {
 
-                    // MARK: - Recent Workouts
+        VStack(
+            alignment: .leading,
+            spacing: 14
+        ) {
 
-                    GroupBox("Recent Workouts") {
+            HStack {
 
-                        VStack(spacing: 16) {
+                Image(systemName: "bolt.fill")
+                    .foregroundStyle(.yellow)
 
-                            if healthKit.recentWorkouts.isEmpty {
+                Text("EXPERIENCE ENGINE")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .tracking(1.5)
+                    .foregroundStyle(.secondary)
 
-                                Text("No workouts available")
-                                    .foregroundStyle(.secondary)
+                Spacer()
+            }
 
-                            } else {
+            Divider()
+                .overlay(
+                    Color.white.opacity(0.08)
+                )
 
-                                ForEach(healthKit.recentWorkouts) { workout in
+            HStack {
 
-                                    HStack(spacing: 12) {
+                VStack(
+                    alignment: .leading,
+                    spacing: 5
+                ) {
 
-                                        Image(
-                                            systemName:
-                                                "figure.strengthtraining.traditional"
-                                        )
-                                        .font(.title2)
-                                        .foregroundStyle(.orange)
+                    Text("TOTAL XP")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
 
-                                        VStack(
-                                            alignment: .leading,
-                                            spacing: 4
-                                        ) {
+                    Text(
+                        progressionStore.progression
+                            .totalXP.formatted()
+                    )
+                    .font(
+                        .system(
+                            size: 24,
+                            weight: .bold
+                        )
+                    )
+                }
 
-                                            Text(workout.activity)
-                                                .font(.headline)
+                Spacer()
 
-                                            Text(
-                                                workout.date.formatted(
-                                                    date: .abbreviated,
-                                                    time: .omitted
-                                                )
-                                            )
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        }
+                VStack(
+                    alignment: .trailing,
+                    spacing: 5
+                ) {
 
-                                        Spacer()
+                    Text("WORKOUTS REWARDED")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
 
-                                        Text(
-                                            "\(workout.durationMinutes) min"
-                                        )
-                                        .bold()
-                                    }
+                    Text(
+                        "\(progressionStore.awards.count)"
+                    )
+                    .font(
+                        .system(
+                            size: 24,
+                            weight: .bold
+                        )
+                    )
+                }
+            }
 
-                                    Divider()
-                                }
-                            }
-                        }
-                        .padding()
-                    }
+            if let summary =
+                progressionStore.lastSyncSummary {
 
-                    // MARK: - HealthKit Status
+                Divider()
+                    .overlay(
+                        Color.white.opacity(0.08)
+                    )
+
+                HStack {
+
+                    Text("Last Sync Rewards")
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Text(
+                        "+\(summary.earnedXP.formatted()) XP"
+                    )
+                    .foregroundStyle(.green)
+                    .fontWeight(.semibold)
+                }
+                .font(.subheadline)
+
+                if summary.levelsGained > 0 {
+
+                    Text(
+                        "LEVEL UP! +\(summary.levelsGained) levels"
+                    )
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundStyle(.yellow)
+                }
+            }
+
+            if progressionStore.enrollmentDate == nil {
+
+                Text(
+                    "Your first successful sync establishes your workout baseline."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            } else if let enrollmentDate =
+                progressionStore.enrollmentDate {
+
+                Text(
+                    "Enrolled: \(enrollmentDate.formatted(date: .abbreviated, time: .shortened))"
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(
+                    Color.white.opacity(0.08),
+                    lineWidth: 1
+                )
+        )
+    }
+
+    // MARK: - Shared HealthKit Sync Button
+
+    private var syncToolbarButton: some ToolbarContent {
+
+        ToolbarItem(
+            placement: .topBarTrailing
+        ) {
+
+            Button {
+
+                healthKit.requestAuthorization()
+
+            } label: {
+
+                if healthKit.syncState.isSyncing {
+
+                    ProgressView()
+                        .tint(.orange)
+
+                } else {
+
+                    Image(systemName: "arrow.clockwise")
+                        .foregroundStyle(.orange)
+                }
+            }
+            .disabled(
+                healthKit.syncState.isSyncing
+            )
+            .accessibilityLabel(
+                "Sync Apple Health"
+            )
+        }
+    }
+
+    // MARK: - Apple Health Activity
+
+    private var activitySection: some View {
+
+        VStack(
+            alignment: .leading,
+            spacing: 16
+        ) {
+
+            HStack {
+
+                Image(systemName: "heart.text.square")
+                    .foregroundStyle(.orange)
+
+                Text("APPLE HEALTH ACTIVITY")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .tracking(1.5)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+            }
+
+            if healthKit.syncState.isSyncing {
+
+                VStack(spacing: 12) {
+
+                    ProgressView()
+                        .tint(.orange)
+
+                    Text("Synchronizing Apple Health...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+
+            } else if healthKit.syncState.hasCompletedSync {
+
+                VStack(spacing: 14) {
+
+                    activityRow(
+                        "Steps Today",
+                        healthKit.todaySteps.formatted()
+                    )
+
+                    activityRow(
+                        "Weekly Steps",
+                        healthKit.weeklyTotalSteps.formatted()
+                    )
+
+                    activityRow(
+                        "Daily Average",
+                        healthKit.weeklyAverageSteps.formatted()
+                    )
+
+                    activityRow(
+                        "Active Days",
+                        "\(healthKit.activeDays) / 7"
+                    )
+
+                    activityRow(
+                        "Recent Workouts (90 Days)",
+                        "\(healthKit.totalRecordedWorkouts)"
+                    )
+
+                    activityRow(
+                        "Workout Minutes (90 Days)",
+                        "\(healthKit.totalWorkoutMinutes)"
+                    )
+                }
+
+                if let lastSync =
+                    healthKit.lastSuccessfulSync {
+
+                    Text(
+                        "Last updated: \(lastSync.formatted(date: .abbreviated, time: .shortened))"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+
+            } else {
+
+                VStack(spacing: 12) {
+
+                    Image(systemName: "heart.text.square")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.secondary)
+
+                    Text(healthKit.syncState.title)
+                        .font(.headline)
 
                     Text(healthKit.statusMessage)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-
-                    // MARK: - Sync Button
-
-                    Button {
-
-                        healthKit.requestAuthorization()
-
-                    } label: {
-
-                        Label(
-                            "Sync Apple Health",
-                            systemImage: "arrow.clockwise"
-                        )
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-
+                        .multilineTextAlignment(.center)
                 }
-                .padding()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
             }
-            .navigationTitle("Activity Dashboard")
         }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(
+                    Color.white.opacity(0.08),
+                    lineWidth: 1
+                )
+        )
     }
 
-    // MARK: - Reusable Metric Row
+    // MARK: - Reusable Activity Row
 
-    private func metricRow(
+    private func activityRow(
         _ title: String,
         _ value: String
     ) -> some View {
@@ -242,12 +582,14 @@ struct ContentView: View {
         HStack {
 
             Text(title)
+                .foregroundStyle(.secondary)
 
             Spacer()
 
             Text(value)
-                .bold()
+                .fontWeight(.semibold)
         }
+        .font(.subheadline)
     }
 }
 
